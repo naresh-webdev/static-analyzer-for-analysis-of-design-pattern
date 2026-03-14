@@ -77,6 +77,12 @@ def check_return(method, var):
                 return True
     return False
 
+def calculate_strength(control_method):
+    if control_method.name == "__new__":
+        return 30, "Strong - direct instantiation protected via __new__"
+    else:
+        return 0, "Weak - direct instantiation not protected, use __new__"
+
 def detect_singleton(filepath):
     tree, cfg = build_cfg(filepath)
     
@@ -90,7 +96,7 @@ def detect_singleton(filepath):
             # Rule 1
             none_vars = find_class_level_none_vars(node)
             if none_vars:
-                score += 25
+                score += 20
                 evidence.append(f"✅ Rule 1: Found class level None variable(s): {none_vars}")
             else:
                 evidence.append("❌ Rule 1: No class level None variable found")
@@ -98,22 +104,27 @@ def detect_singleton(filepath):
             # Rule 2 + 3 combined
             control_method, tracked_var = find_control_method(node, none_vars)
             if control_method:
-                score += 25
+                score += 15
                 evidence.append(f"✅ Rule 2: Found control method: {control_method.name}")
-                score += 25
+                score += 15
                 evidence.append(f"✅ Rule 3: Condition + assignment found for: {tracked_var}")
                 
                 # Rule 4 only runs if Rule 2+3 passed
                 if check_return(control_method, tracked_var):
-                    score += 25
+                    score += 20
                     evidence.append(f"✅ Rule 4: Tracked variable '{tracked_var}' is returned")
                 else:
                     evidence.append(f"❌ Rule 4: Control method found but returns wrong variable")
+
+                # Strength calculation based on control method type
+                strength_score, strength_evidence = calculate_strength(control_method)
+                score += strength_score
+                evidence.append(f"📝 Strength: {strength_evidence}")
             else:
                 evidence.append("❌ Rule 2+3: No singleton control method found")
                 evidence.append("⏭️ Rule 4: Skipped")
 
-
+    
             results.append({
                 "class": node.name,
                 "score": score,
@@ -128,4 +139,4 @@ def detect_singleton(filepath):
         for e in result['evidence']:
             print(f"  {e}")
 
-detect_singleton("test_singleton6.py")
+detect_singleton("test_singleton.py")
