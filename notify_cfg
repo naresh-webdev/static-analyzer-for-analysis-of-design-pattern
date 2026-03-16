@@ -1,0 +1,11 @@
+digraph clusternotify {
+	graph [label=notify]
+	14 [label="#14
+for observer in self._subscribers:
+"]
+	15 [label="#15
+observer.update()
+"]
+	15 -> 14 [label=""]
+	14 -> 15 [label="self._subscribers"]
+}
