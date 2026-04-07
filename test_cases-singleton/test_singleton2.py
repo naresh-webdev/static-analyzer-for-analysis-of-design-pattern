@@ -4,5 +4,5 @@ class Logger:
     @classmethod
     def get_instance(cls):
         if cls._instance is None:
-            cls._instance = "active"  # assigns string not instance!
+            cls._instance = cls() # assigns string not instance!
         return cls._instance

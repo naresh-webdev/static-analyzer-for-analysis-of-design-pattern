@@ -22,6 +22,3 @@ class ThreadSafeSingleton:
     @classmethod
     def dummy_method(self):
         pass
-
-class dummy_class:
-    pass

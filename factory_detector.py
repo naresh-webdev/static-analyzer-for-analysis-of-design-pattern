@@ -186,4 +186,4 @@ def detect_factory(filepath):
     if not detected:
         print("\nNo Factory pattern detected")
 
-detect_factory("test_factory7.py")
+detect_factory("./test_cases-factory/test_factory1.py")
