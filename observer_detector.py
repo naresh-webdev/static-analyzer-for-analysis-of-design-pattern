@@ -184,4 +184,7 @@ def detect_observer(filepath):
         print(f"  {e}")
 
 if __name__ == "__main__":
-    detect_observer("test_observer1.py")
+    for i in range(1, 8):
+        print(f"\n{'#'*80}")
+        print("" + f"TEST CASE {i}".center(78) + " ")
+        detect_observer(f"test_cases-observer/test{i}.py")  
