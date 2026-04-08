@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+src/architecture_tutor/__init__.py
+src/architecture_tutor/factory_detector.py
+src/architecture_tutor/observer_detector.py
+src/architecture_tutor/singleton_detector.py
+src/architecture_tutor/strategy_detector.py
+src/architecture_tutor/template_detector.py
+src/architecture_tutor/tutor_module.py
+src/architecture_tutor.egg-info/PKG-INFO
+src/architecture_tutor.egg-info/SOURCES.txt
+src/architecture_tutor.egg-info/dependency_links.txt
+src/architecture_tutor.egg-info/requires.txt
+src/architecture_tutor.egg-info/top_level.txt

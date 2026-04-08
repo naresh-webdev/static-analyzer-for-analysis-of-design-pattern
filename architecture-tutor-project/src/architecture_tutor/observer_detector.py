@@ -1,15 +1,25 @@
 import ast
-from scalpel.cfg import CFGBuilder
+import importlib
+import numpy as np
 
 # ============================================================
-# CORE UTILITY
+# CORE UTILITY (Unchanged)
 # ============================================================
 
 def build_cfg(filepath):
     with open(filepath, "r", encoding="utf-8") as f:
         source = f.read()
     tree = ast.parse(source)
-    cfg = CFGBuilder().build_from_src("observer", source)
+
+    cfg = None
+    try:
+        cfg_module = importlib.import_module("scalpel.cfg")
+        cfg_builder_cls = getattr(cfg_module, "CFGBuilder")
+        cfg = cfg_builder_cls().build_from_src("observer", source)
+    except (ImportError, AttributeError):
+        # Scalpel is optional; Rule 5 will be skipped if CFG cannot be built.
+        cfg = None
+
     return tree, cfg
 
 def find_cfg_recursively(cfg_obj, target_class_name):
@@ -23,7 +33,7 @@ def find_cfg_recursively(cfg_obj, target_class_name):
     return None
 
 # ============================================================
-# DYNAMIC RULES ENGINE
+# DYNAMIC RULES ENGINE (Unchanged)
 # ============================================================
 
 def check_rule1(classnode):
@@ -103,88 +113,93 @@ def check_rule5_cfg(module_cfg, subject_name, target_method_name):
     return False
 
 # ============================================================
-# MAIN DETECTOR
+# MATRIX EXTRACTION (Updated)
 # ============================================================
 
 def detect_observer(filepath):
-    print(f"\n{'='*60}")
-    print(f"🚀 RUNNING DYNAMIC OBSERVER ANALYZER: {filepath}")
-    print(f"{'='*60}")
-    
+    # Suppressing prints here so it is silent for the Master Tutor
     try:
         tree, module_cfg = build_cfg(filepath)
-    except FileNotFoundError:
-        print(f"❌ Error: Could not find {filepath}")
-        return
+    except Exception: # Broad catch in case of parse/file errors
+        return []
 
-    evidence = []
-    passed = True
-    subject_class = None
-    list_name = None
+    results = []
 
-    # Rule 1
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
-            r1, lst = check_rule1(node)
+            
+            # ---> THE GATEWAY <---
+            r1, list_name = check_rule1(node)
+            
             if r1:
-                subject_class = node
-                list_name = lst
-                evidence.append(f"✅ Rule 1 (State): Subject '{node.name}' initializes tracking collection: 'self.{list_name}'")
-                break
-    
-    if not subject_class:
-        passed = False
-        evidence.append("❌ Rule 1: No subject class with tracking collection found.")
+                # We passed the gateway! Initialize the base vector
+                # [Gateway, Registration, Broadcast, Listeners, CFG]
+                features = [1, 0, 0, 0, 0]
+                evidence = [f"✅ Gateway: Subject '{node.name}' initializes tracking collection 'self.{list_name}'"]
+                suggestions = []
 
-    # Rule 2
-    if passed:
-        r2, reg_methods = check_rule2(subject_class, list_name)
-        if r2:
-            evidence.append(f"✅ Rule 2 (Registration): Found methods appending to collection: {reg_methods}")
-        else:
-            passed = False
-            evidence.append(f"❌ Rule 2: Nothing adds items to 'self.{list_name}'.")
+                # Rule 2
+                r2, reg_methods = check_rule2(node, list_name)
+                if r2:
+                    features[1] = 1
+                    evidence.append(f"✅ Registration: Found methods appending to collection: {reg_methods}")
+                else:
+                    suggestions.append(f"💡 Logic: No methods found that add items to 'self.{list_name}'.")
 
-    # Rule 3
-    if passed:
-        r3, notify_method, target_method = check_rule3(subject_class, list_name)
-        if r3:
-            evidence.append(f"✅ Rule 3 (Broadcast): Method '{notify_method}()' loops over collection and delegates to '.{target_method}()'")
-        else:
-            passed = False
-            evidence.append(f"❌ Rule 3: No method broadcasts a loop over 'self.{list_name}'.")
+                # Rule 3
+                r3, notify_method, target_method = check_rule3(node, list_name)
+                if r3:
+                    features[2] = 1
+                    evidence.append(f"✅ Broadcast: '{notify_method}()' loops over collection and delegates to '.{target_method}()'")
+                    
+                    # Rule 4 & 5 ONLY make sense to check if Rule 3 found the target method
+                    r4, observers = check_rule4(tree, node.name, target_method)
+                    if r4:
+                        features[3] = 1
+                        evidence.append(f"✅ Listeners: Found {len(observers)} classes implementing '{target_method}()': {observers}")
+                    else:
+                        suggestions.append(f"💡 Ecosystem: No other classes implement the expected listener method '{target_method}()'.")
 
-    # Rule 4
-    if passed:
-        r4, observers = check_rule4(tree, subject_class.name, target_method)
-        if r4:
-            evidence.append(f"✅ Rule 4 (Listeners): Found {len(observers)} classes implementing '{target_method}()': {observers}")
-        else:
-            passed = False
-            evidence.append(f"❌ Rule 4: No other classes implement the expected listener method '{target_method}()'.")
+                    r5 = check_rule5_cfg(module_cfg, node.name, target_method)
+                    if r5:
+                        features[4] = 1
+                        evidence.append(f"✅ Execution: CFG mathematically confirms '.{target_method}()' execution path exists.")
+                    else:
+                        suggestions.append(f"💡 Execution: CFG could not verify a guaranteed execution path for '.{target_method}()'.")
+                else:
+                    suggestions.append(f"💡 Logic: No method broadcasts a loop over 'self.{list_name}'.")
 
-    # Rule 5
-    if passed:
-        r5 = check_rule5_cfg(module_cfg, subject_class.name, target_method)
-        if r5:
-            evidence.append(f"✅ Rule 5 (CFG Verification): Graph mathematically confirms '.{target_method}()' execution path exists.")
-        else:
-            passed = False
-            evidence.append(f"❌ Rule 5: CFG could not verify an execution path for '.{target_method}()'.")
+                # Convert to a Numpy Column Matrix
+                feature_column_matrix = np.array(features).reshape(-1, 1)
 
-    # Results
-    print(f"\n📊 DETECTOR VERDICT:")
-    if passed:
-        print(f"✅ PASSED - Observer Pattern verified dynamically.")
-    else:
-        print(f"❌ FAILED - Observer Pattern incomplete.")
-        
-    print("\n🔍 ARCHITECTURAL EVIDENCE:")
-    for e in evidence:
-        print(f"  {e}")
+                results.append({
+                    "class": node.name,
+                    "feature_matrix": feature_column_matrix,
+                    "evidence": evidence,
+                    "suggestions": suggestions
+                })
+
+    return results
 
 if __name__ == "__main__":
     for i in range(1, 8):
         print(f"\n{'#'*80}")
         print("" + f"TEST CASE {i}".center(78) + " ")
-        detect_observer(f"test_cases-observer/test{i}.py")  
+        res = detect_observer(f"test_cases-observer/test{i}.py")  
+        print("result : ", res)
+        for r in res:
+            print(f"Detected Observer in: {r['class']}")
+            print(f"Feature Matrix:\n{r['feature_matrix']}")
+
+
+'''
+features[0] — Gateway (State Tracking): 1 if the subject initializes a list or set to track observers (e.g., self.listeners = []). If this is 0, the matrix returns empty.
+
+features[1] — Registration: 1 if there is a method that actively appends or adds objects to that tracking collection (e.g., self.listeners.append(obj)).
+
+features[2] — Broadcast (The Loop): 1 if a method iterates over the collection and invokes a specific target method on the items (e.g., for obs in self.listeners: obs.update()).
+
+features[3] — Listeners (Ecosystem): 1 if at least one other class in the file actually implements that dynamically discovered target method (e.g., def update(self):).
+
+features[4] — Execution (CFG Proof): 1 if the Control Flow Graph mathematically verifies that a valid execution path exists to trigger that target method.
+'''

@@ -1,4 +1,5 @@
 import ast
+import numpy as np
 from scalpel.cfg import CFGBuilder
 
 # ==========================================
@@ -103,57 +104,42 @@ class SafeCFGVisitor(ast.NodeVisitor):
         # because Scalpel sometimes groups them in the same block.
         self.generic_visit(node)
 
-
 def extract_simple_graph(method_cfg, tracked_var):
     """Converts Scalpel's CFG into an adjacency list safely."""
     graph = {}
-    
     for block in method_cfg.get_all_blocks():
         node_id = block.id
-        
-        # Instantiate our new safe visitor
         visitor = SafeCFGVisitor(tracked_var)
-        
         for stmt in block.statements:
-            # Let the visitor safely evaluate the statement
             visitor.visit(stmt)
-
         edges = [link.target.id for link in block.exits]
-        
         graph[node_id] = {
             "is_condition": visitor.has_condition,
             "is_assignment": visitor.has_assignment,
             "is_return": visitor.has_return,
             "edges": edges
         }
-        
     return graph
 
 def print_adjacency_matrix(graph, method_name):
     """Renders the simple_graph as a formatted 2D Adjacency Matrix in the terminal."""
     print(f"\n📊 Adjacency Matrix for '{method_name}':")
-    
     nodes = sorted(list(graph.keys()))
     if not nodes:
         print("  [Empty Graph]")
         return
-        
     n = len(nodes)
     node_to_idx = {node_id: i for i, node_id in enumerate(nodes)}
-    
     matrix = [[0] * n for _ in range(n)]
-    
     for source, data in graph.items():
         i = node_to_idx[source]
         for target in data["edges"]:
             if target in node_to_idx: 
                 j = node_to_idx[target]
                 matrix[i][j] = 1
-                
     header = "    " + " ".join([f"{node:^2}" for node in nodes])
     print(header)
     print("  " + "-" * len(header))
-    
     for row_node in nodes:
         i = node_to_idx[row_node]
         row_str = " ".join([f"{val:^2}" for val in matrix[i]])
@@ -165,124 +151,103 @@ def has_instantiation_path(graph, current_node, visited=None, assigned=False):
     if visited is None: visited = set()
     if current_node in visited or current_node not in graph: return False
     visited.add(current_node)
-    
     node_data = graph[current_node]
-    
-    if node_data["is_assignment"]:
-        assigned = True
-        
-    if node_data["is_return"] and assigned:
-        return True
-        
+    if node_data["is_assignment"]: assigned = True
+    if node_data["is_return"] and assigned: return True
     for edge in node_data["edges"]:
         if has_instantiation_path(graph, edge, visited.copy(), assigned):
             return True
-            
     return False
 
 def has_bypass_path(graph, current_node, visited=None):
     """Path 2: Must hit a Return node WITHOUT ever touching an Assignment node."""
-    print("current node:", current_node, "data", graph[current_node])
+    # print("current node:", current_node, "data", graph[current_node]) # Removed for cleaner output
     if visited is None: visited = set()
     if current_node in visited or current_node not in graph: return False
     visited.add(current_node)
-    
     node_data = graph[current_node]
-    
-    if node_data["is_assignment"]:
-        return False 
-        
-    if node_data["is_return"]:
-        return True
-        
+    if node_data["is_assignment"]: return False 
+    if node_data["is_return"]: return True
     for edge in node_data["edges"]:
         if has_bypass_path(graph, edge, visited.copy()):
             return True
-            
     return False
 
 def verify_singleton_via_graph_traversal(method_cfg, none_vars, method_name):
     """Engine for Rules 3 & 4 using Branch Divergence Math."""
     for var in none_vars:
         simple_graph = extract_simple_graph(method_cfg, var)
-        
-        # Print the matrix to terminal
         print_adjacency_matrix(simple_graph, method_name)
-        
-        # 1. Find the exact node(s) where the condition occurs
         condition_nodes = [node_id for node_id, data in simple_graph.items() if data["is_condition"]]
-        
-        if not condition_nodes:
-            continue
-            
-        # 2. Test the topological constraints diverging from the Condition node
+        if not condition_nodes: continue
         for cond_node in condition_nodes:
             path_1 = has_instantiation_path(simple_graph, cond_node)
             print("  🔍 Path 1 (Condition -> Assignment -> Return):", "✅ Found" if path_1 else "❌ Not Found")
             path_2 = has_bypass_path(simple_graph, cond_node)
             print("  🔍 Path 2 (Condition -> Return):", "✅ Found" if path_2 else "❌ Not Found")
-            
             if path_1 and path_2:
-                # Both realities converge safely on a return.
                 return True, var, True
-
     return False, None, False
 
 # ==========================================
-# 4. MAIN DETECTOR & EXECUTION
+# 4. MATRIX EXTRACTION & EXECUTION
 # ==========================================
 
-def calculate_strength(control_method):
+def extract_features(control_method, tracked_var):
+    """Builds the Singleton Feature Vector based on CFG Traversal results."""
+    
+    # Since control_method is only set if the graph traversal succeeded,
+    # the first three gateway/path checks are mathematically verified as True.
+    # Base Vector: [Gateway, Divergent_Paths, Safe_Return, Enterprise_Strength]
+    features = [1, 1, 1, 0] 
+    
+    evidence = [
+        f"✅ Gateway: Found control method '{control_method.name}' tracking '{tracked_var}'",
+        f"✅ Architecture: Graph mathematically verified divergent assignment paths for '{tracked_var}'",
+        f"✅ Execution: Graph verified '{tracked_var}' reaches return safely on all paths"
+    ]
+    suggestions = []
+    
     if control_method.name == "__new__":
-        return 30, "Strong - direct instantiation protected via __new__"
-    return 0, "Weak - direct instantiation not protected, use __new__"
+        features[3] = 1 # Update matrix for Enterprise Strength
+        evidence.append("✅ Enterprise Strength: Direct instantiation strictly protected via __new__")
+    else:
+        suggestions.append("💡 Strength: Consider using __new__ instead of a classmethod to strictly prevent direct instantiation.")
+
+    return features, evidence, suggestions
+
 
 def detect_singleton(filepath):
-    print(f"\n--- Scanning: {filepath} ---")
-    
-    with open(filepath, "r", encoding="utf-8") as f:
-        source = f.read()
+    # Suppress the print statements so it plays nicely with the Master Tutor
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            source = f.read()
+    except FileNotFoundError:
+        return []
+
     tree = ast.parse(source)
-    
     builder = CFGBuilder()
-    module_cfg = builder.build_from_file('module', filepath)
     
+    try:
+        module_cfg = builder.build_from_file('module', filepath)
+    except Exception:
+        # If Scalpel crashes building the file, safely return the empty gateway matrix
+        return [] 
+        
     results = []
     
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
-            score = 0
-            evidence = []
-            
-            # Rule 1
             none_vars = find_class_level_none_vars(node)
-            if none_vars:
-                score += 20
-                evidence.append(f"✅ Rule 1: Found class level None variable(s): {none_vars}")
-            else:
-                evidence.append("❌ Rule 1: No class level None variable found")
-            
-            # Identify Candidates
             candidates = find_control_method_candidates(node)
+            
             control_method = None
             tracked_var = None
-            is_returned = False
             
             if none_vars:
                 for candidate in candidates:
                     method_cfg = find_cfg_recursively(module_cfg, candidate.name)
                     if method_cfg:
-                        
-                        # Save the CFG Image visually
-                        print(f"🎨 Rendering CFG image for '{candidate.name}'...")
-                        try:
-                            dot = method_cfg.build_visual('png')
-                            output_filename = f"{candidate.name}_cfg_diagram"
-                            dot.render(output_filename, view=False)
-                            print(f"✅ Saved visually as {output_filename}.png")
-                        except Exception as e:
-                            print(f"⚠️ Could not render PNG (Graphviz may be missing): {e}")
-                        
                         # Run the mathematical edge traversal
                         is_singleton, t_var, ret_status = verify_singleton_via_graph_traversal(
                             method_cfg, none_vars, candidate.name
@@ -291,45 +256,40 @@ def detect_singleton(filepath):
                         if is_singleton:
                             control_method = candidate
                             tracked_var = t_var
-                            is_returned = ret_status
                             break
             
+            # ---> THE GATEWAY <---
+            # We ONLY build the matrix if the CFG Engine proved it was a Singleton
             if control_method:
-                score += 15
-                evidence.append(f"✅ Rule 2: Found control method: {control_method.name}")
-                score += 15
-                evidence.append(f"✅ Rule 3: Graph verified divergent assignment paths for: {tracked_var}")
-                score += 20
-                evidence.append(f"✅ Rule 4: Graph verified '{tracked_var}' reaches return block safely on all paths")
+                feature_list, evidence, suggestions = extract_features(control_method, tracked_var)
+                
+                # Convert the standard list to a Numpy Column Matrix
+                feature_column_matrix = np.array(feature_list).reshape(-1, 1)
+                
+                results.append({
+                    "class": node.name,
+                    "feature_matrix": feature_column_matrix,
+                    "evidence": evidence,
+                    "suggestions": suggestions
+                })
 
-                strength_score, strength_evidence = calculate_strength(control_method)
-                score += strength_score
-                evidence.append(f"📝 Strength: {strength_evidence}")
-            else:
-                evidence.append("❌ Rule 2+3: Graph rejected paths (Missing valid Condition -> Assignment branch logic)")
-                evidence.append("⏭️ Rule 4: Skipped")
-
-            results.append({
-                "class": node.name,
-                "score": score,
-                "evidence": evidence
-            })
-    
-    print("\n" + "="*40)
-    print("FINAL DETECTOR RESULTS")
-    print("="*40)
-    for result in results:
-        print(f"Class: {result['class']}")
-        print(f"Singleton Confidence Score: {result['score']}%")
-        print("Evidence:")
-        for e in result['evidence']:
-            print(f"  {e}")
-        print("-" * 40)
+    return results
 
 if __name__ == "__main__":
-    TEST_FILE = "./test_cases-singleton/test_singleton8.py"
-    
-    try:
-        detect_singleton(TEST_FILE)
-    except FileNotFoundError:
-        print(f"❌ Error: Could not find {TEST_FILE}. Check your path!")
+
+    for i in range(1, 9):
+        print(f"--- Analyzing test_cases-singleton/test{i}.py ---")
+        results = detect_singleton(f"test_cases-singleton/test_singleton{i}.py")
+        print("Results: ", "✅ Singleton Detected" if results else "❌ No Singleton Detected")
+        for res in results:
+            print(f"Class: {res['class']}")
+            print("Feature Matrix:")
+            print(res["feature_matrix"])
+            print("Evidence:")
+            for ev in res["evidence"]:
+                print(f"  - {ev}")
+            if res["suggestions"]:
+                print("Suggestions:")
+                for sug in res["suggestions"]:
+                    print(f"  - {sug}")
+            print()

@@ -1,4 +1,6 @@
+import __main__
 import ast
+import numpy as np
 from scalpel.cfg import CFGBuilder
 
 # ============================================================
@@ -130,60 +132,100 @@ def check_true_factory(tree):
 # ============================================================
 # MAIN DETECTOR
 # ============================================================
-
 def detect_factory(filepath):
-    tree, cfg = build_cfg(filepath)
-    
-    detected = False
-    
-    # Check Variant 3 first (strongest)
-    r3, info3 = check_true_factory(tree)
-    if r3:
-        detected = True
-        print(f"\n{'='*50}")
-        print(f"FACTORY PATTERN DETECTED")
-        print(f"Variant: True Factory Method (Strongest)")
-        print(f"Strength Score: 100%")
-        print(f"Evidence:")
-        print(f"  ✅ Abstract creator(s): {info3['abstract_classes']}")
-        print(f"  ✅ Concrete creators: {info3['concrete_classes']}")
-    
-    # Check Variant 2
-    if not detected:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                r2, info2 = check_registry_factory(node)
-                if r2:
-                    detected = True
-                    print(f"\n{'='*50}")
-                    print(f"FACTORY PATTERN DETECTED")
-                    print(f"Class: {node.name}")
-                    print(f"Variant: Registry Based (Medium)")
-                    print(f"Strength Score: 75%")
-                    print(f"Evidence:")
-                    print(f"  ✅ Registry dictionary: '{info2['registry']}'")
-                    print(f"  ✅ Factory method: '{info2['method']}'")
-                    break
-    
-    # Check Variant 1
-    if not detected:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                r1, info1 = check_simple_factory(node)
-                if r1:
-                    detected = True
-                    print(f"\n{'='*50}")
-                    print(f"FACTORY PATTERN DETECTED")
-                    print(f"Class: {node.name}")
-                    print(f"Variant: Simple Factory (Weakest)")
-                    print(f"Strength Score: 50%")
-                    print(f"Evidence:")
-                    print(f"  ✅ Factory method: '{info1['method']}'")
-                    print(f"  ✅ Parameters: {info1['params']}")
-                    print(f"  ✅ Returns: {info1['returns']}")
-                    break
-    
-    if not detected:
-        print("\nNo Factory pattern detected")
+    try:
+        tree, cfg = build_cfg(filepath)
+    except Exception:
+        return []
+        
+    results = []
 
-detect_factory("./test_cases-factory/test_factory1.py")
+    # Suppressed prints for silent Tutor execution
+    # print(f"\n{'='*60}")
+    # print(f"--- Scanning: {filepath} for Factory Pattern ---")
+    # print(f"{'='*60}")
+    
+    # Check Variant 3 first (Strongest - True Factory Method)
+    r3, info3 = check_true_factory(tree)
+    if r3 and info3 is not None:
+        main_class = list(info3['abstract_classes'].keys())[0] if info3['abstract_classes'] else "Factory"
+        
+        # Matrix: [Gateway, Params, Registry, Polymorphism]
+        features = [1, 0, 0, 1] 
+        feature_column_matrix = np.array(features).reshape(-1, 1)
+        
+        results.append({
+            "class": main_class,
+            "feature_matrix": feature_column_matrix,
+            "evidence": [
+                f"✅ Abstract creator(s): {info3['abstract_classes']}",
+                f"✅ Concrete creators: {info3['concrete_classes']}"
+            ],
+            "suggestions": []
+        })
+        return results 
+    
+    # Check Variant 2 (Medium - Registry Factory)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            r2, info2 = check_registry_factory(node)
+            if r2 and info2 is not None:
+                
+                # Matrix: [Gateway, Params, Registry, Polymorphism]
+                features = [1, 0, 1, 0] 
+                feature_column_matrix = np.array(features).reshape(-1, 1)
+                
+                results.append({
+                    "class": node.name,
+                    "feature_matrix": feature_column_matrix,
+                    "evidence": [
+                        f"✅ Registry dictionary: '{info2['registry']}'",
+                        f"✅ Factory method: '{info2['method']}'"
+                    ],
+                    "suggestions": ["💡 Architecture: Excellent use of the Open/Closed Principle via Registry."]
+                })
+                return results
+    
+    # Check Variant 1 (Weakest - Simple Factory)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            r1, info1 = check_simple_factory(node)
+            if r1 and info1 is not None:
+                
+                # Matrix: [Gateway, Params, Registry, Polymorphism]
+                features = [1, 1, 0, 0] 
+                feature_column_matrix = np.array(features).reshape(-1, 1)
+                
+                results.append({
+                    "class": node.name,
+                    "feature_matrix": feature_column_matrix,
+                    "evidence": [
+                        f"✅ Factory method: '{info1['method']}'",
+                        f"✅ Parameters: {info1['params']}",
+                        f"✅ Returns: {info1['returns']}"
+                    ],
+                    "suggestions": ["💡 Architecture: Consider upgrading to a Registry or Abstract Factory to avoid growing if/elif chains."]
+                })
+                return results
+    
+    return results
+
+if __name__ == "__main__":
+    res = detect_factory("./test_cases-factory/test_factory3.py")
+    for r in res:
+        print(f"\nDetected Factory Base: {r['class']}")
+        print(f"Feature Matrix (Column):\n{r['feature_matrix']}")
+        print("Evidence:")
+        for e in r['evidence']:
+            print(f"  - {e}")
+
+
+"""
+features[0] — Gateway: 1 if any valid factory pattern is detected.
+
+features[1] — Parameterization: 1 if it is a Simple Factory (using if/elif and parameters).
+
+features[2] — Registry: 1 if it is a Registry Factory (using a dictionary).
+
+features[3] — Polymorphism: 1 if it is a True Factory Method (using ABC and overriding).
+"""

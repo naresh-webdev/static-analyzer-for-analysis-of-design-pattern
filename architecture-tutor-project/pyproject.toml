@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "architecture-tutor"
+version = "0.1.1"
+authors = [
+  { name="Naresh M", email="naresh2004.m@gmail.com" },
+]
+description = "An ML-ready static analysis tutor for Enterprise Python Design Patterns."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy",
+    "python-scalpel"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/naresh-webdev/static-analyzer-for-analysis-of-design-pattern"
